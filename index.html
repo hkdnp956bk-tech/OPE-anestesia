@@ -181,6 +181,8 @@ h1,h2,h3{font-family:var(--serif);font-weight:600;margin:0;letter-spacing:-.01em
 .ibtn{width:28px;height:28px;border-radius:50%;border:1.5px solid var(--line);background:var(--card);color:var(--green);font-family:var(--serif);font-style:italic;font-weight:700;font-size:16px;line-height:1;display:inline-flex;align-items:center;justify-content:center;flex:none}
 .dialog .box p{margin:0 0 10px}
 .dialog .box p:last-child{margin-bottom:0}
+.rng{flex:1;min-width:0;padding:11px 12px;text-align:center;-moz-appearance:textfield}
+.rng::-webkit-inner-spin-button,.rng::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .syncline{display:flex;align-items:center;gap:7px;justify-content:center;margin:6px 0 0;font-size:12.5px;color:var(--muted)}
 .syncline i{width:8px;height:8px;border-radius:50%;background:#c9c2b2}
 .syncline i.ok{background:var(--mint)}
@@ -284,13 +286,6 @@ button.syncline.tap{border:1.5px solid var(--line);background:var(--card);color:
   <section class="view" id="v-exam">
     <div class="card">
       <div class="row between"><h2 style="margin:0">Examen aleatorio</h2><button class="ibtn" data-i="random" aria-label="Información">i</button></div>
-      <div class="label">Número de preguntas</div>
-      <div class="chips" id="nChips"></div>
-      <div class="stepper" style="margin-top:10px">
-        <button id="nMinus" aria-label="Menos">−</button>
-        <input id="nInput" type="number" inputmode="numeric" min="1" value="25">
-        <button id="nPlus" aria-label="Más">+</button>
-      </div>
       <div class="label">Fase</div>
       <div class="seg" id="faseSeg">
         <button data-v="C">Común</button><button data-v="E">Específica</button><button data-v="A" class="on">Ambas</button>
@@ -298,6 +293,19 @@ button.syncline.tap{border:1.5px solid var(--line);background:var(--card);color:
       <div class="label">Tipo de pregunta</div>
       <div class="seg" id="tipoSeg">
         <button data-v="T">Tipo test</button><button data-v="K">Caso clínico</button><button data-v="M" class="on">Mezcla</button>
+      </div>
+      <div id="nBlock">
+        <div class="label" id="nLabel">Número de preguntas</div>
+        <div class="chips" id="nChips"></div>
+        <div class="stepper" style="margin-top:10px">
+          <button id="nMinus" aria-label="Menos">−</button>
+          <input id="nInput" type="number" inputmode="numeric" min="1" value="25">
+          <button id="nPlus" aria-label="Más">+</button>
+        </div>
+      </div>
+      <div id="cBlock">
+        <div class="label">Número de casos clínicos</div>
+        <div class="chips" id="cChips"></div>
       </div>
       <p class="small muted" id="poolInfo" style="margin:14px 2px 14px"></p>
       <button class="btn" id="startRandom">Empezar examen</button>
@@ -325,6 +333,13 @@ button.syncline.tap{border:1.5px solid var(--line);background:var(--card);color:
       <div class="row between"><h2 style="margin:0">Respuestas correctas</h2><button class="ibtn" data-i="ans" aria-label="Información">i</button></div>
       <div class="seg" id="ansSeg" style="margin-top:14px"><button data-v="C" class="on">Común · 200</button><button data-v="E">Específica · 500</button></div>
       <input class="search" id="ansSearch" type="search" placeholder="Buscar por número o texto" style="margin-top:12px">
+      <div class="row" style="margin-top:10px;gap:8px">
+        <span class="small muted" style="font-weight:600">Del nº</span>
+        <input class="search plain rng" id="ansFrom" type="number" inputmode="numeric" min="1" placeholder="1">
+        <span class="small muted" style="font-weight:600">al</span>
+        <input class="search plain rng" id="ansTo" type="number" inputmode="numeric" min="1" placeholder="200">
+        <button class="iconbtn" id="ansRngClr" aria-label="Quitar intervalo" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
       <div class="chips" id="ansFilter" style="margin-top:12px">
         <button class="chip on" data-v="all">Todas</button><button class="chip" data-v="dud">Dudosas</button><button class="chip" data-v="conf">Confirmadas</button><button class="chip" data-v="none">Sin respuesta</button><button class="chip" data-v="mod">Modificadas</button>
       </div>
@@ -609,24 +624,40 @@ function renderProg(){
 }
 
 /* ---------- RANDOM EXAM VIEW ---------- */
-let rf = {n:25, f:'A', t:'M'};
-function poolRandom(f,t){
+const caseIds = Object.keys(CASES).map(Number).sort((a,b)=>a-b);
+function caseQs(k){ return IDS_E.filter(id => Q[id].k === k && valid(id)).sort((a,b) => Q[a].n - Q[b].n); }
+let rf = {n:25, c:2, f:'A', t:'M'};
+// preguntas tipo test (sin casos) de la fase elegida
+function poolTest(f){
   let ids = [];
-  if (f !== 'E' && t !== 'K') ids = ids.concat(IDS_C);
-  if (f !== 'C') ids = ids.concat(IDS_E.filter(id => t === 'M' || (t === 'K' ? Q[id].k : !Q[id].k)));
+  if (f !== 'E') ids = ids.concat(IDS_C);
+  if (f !== 'C') ids = ids.concat(IDS_E.filter(id => !Q[id].k));
   return ids.filter(valid);
 }
+const casesAvail = () => caseIds.filter(k => caseQs(k).length);
 function renderRandom(){
-  $('#nChips').innerHTML = [10,25,50,100].map(n => `<button class="chip ${rf.n===n?'on':''}" data-n="${n}">${n}</button>`).join('');
-  $$('#nChips .chip').forEach(b => b.onclick = () => { rf.n = +b.dataset.n; renderRandom(); });
-  $('#nInput').value = rf.n;
   $$('#faseSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === rf.f));
   if (rf.f === 'C' && rf.t !== 'T') rf.t = 'T';
   $$('#tipoSeg button').forEach(b => { b.classList.toggle('on', b.dataset.v === rf.t); b.disabled = rf.f === 'C' && b.dataset.v !== 'T'; });
-  const pool = poolRandom(rf.f, rf.t);
-  $('#poolInfo').textContent = `${pool.length} preguntas disponibles`;
-  const btn = $('#startRandom'); btn.disabled = !pool.length || rf.n < 1;
-  btn.textContent = pool.length && rf.n > pool.length ? `Empezar con ${pool.length} preguntas` : 'Empezar examen';
+  const useN = rf.t !== 'K', useC = rf.t !== 'T';
+  $('#nBlock').style.display = useN ? '' : 'none';
+  $('#cBlock').style.display = useC ? '' : 'none';
+  $('#nLabel').textContent = rf.t === 'M' ? 'Preguntas tipo test' : 'Número de preguntas';
+  $('#nChips').innerHTML = [10,25,50,100].map(n => `<button class="chip ${rf.n===n?'on':''}" data-n="${n}">${n}</button>`).join('');
+  $$('#nChips .chip').forEach(b => b.onclick = () => { rf.n = +b.dataset.n; renderRandom(); });
+  $('#nInput').value = rf.n;
+  const CA = casesAvail();
+  rf.c = Math.max(1, Math.min(rf.c, CA.length));
+  $('#cChips').innerHTML = CA.map((k,i) => `<button class="chip ${rf.c===i+1?'on':''}" data-c="${i+1}">${i+1}</button>`).join('');
+  $$('#cChips .chip').forEach(b => b.onclick = () => { rf.c = +b.dataset.c; renderRandom(); });
+  const tp = poolTest(rf.f);
+  const nT = useN ? Math.min(rf.n, tp.length) : 0;
+  const parts = [];
+  if (useN) parts.push(`${nT} tipo test`);
+  if (useC) parts.push(`${rf.c} ${rf.c === 1 ? 'caso completo' : 'casos completos'}`);
+  $('#poolInfo').textContent = parts.join(' + ');
+  $('#startRandom').disabled = (useN && !tp.length) || (useC && !CA.length);
+  $('#startRandom').textContent = 'Empezar examen';
 }
 $('#nMinus').onclick = () => { rf.n = Math.max(1, rf.n - 5); renderRandom(); };
 $('#nPlus').onclick = () => { rf.n = rf.n + 5; renderRandom(); };
@@ -635,26 +666,15 @@ $$('#faseSeg button').forEach(b => b.onclick = () => { rf.f = b.dataset.v; rende
 $$('#tipoSeg button').forEach(b => b.onclick = () => { rf.t = b.dataset.v; renderRandom(); });
 function shuffle(a){ for (let i = a.length-1; i > 0; i--) { const j = Math.floor(Math.random()*(i+1)); [a[i],a[j]] = [a[j],a[i]]; } return a; }
 $('#startRandom').onclick = () => {
-  const pool = shuffle(poolRandom(rf.f, rf.t)).slice(0, rf.n);
-  // keep questions of the same clinical case together, in order
-  const ord = groupCases(pool);
-  startExam({t:'r', q:ord, cfg:{f:rf.f, t:rf.t}, nt:ord.length, lim:0});
+  const test = rf.t !== 'K' ? shuffle(poolTest(rf.f)).slice(0, rf.n) : [];
+  let prac = [];
+  if (rf.t !== 'T') shuffle(casesAvail()).slice(0, rf.c).forEach(k => prac = prac.concat(caseQs(k)));
+  const q = test.concat(prac);
+  startExam({t:'r', q, cfg:{f:rf.f, t:rf.t, c: rf.t !== 'T' ? rf.c : 0}, nt:test.length, lim:0});
 };
-function groupCases(ids){
-  const out = [], seenCase = new Set();
-  ids.forEach(id => {
-    const k = Q[id].k;
-    if (!k) { out.push(id); return; }
-    if (seenCase.has(k)) return; seenCase.add(k);
-    ids.filter(x => Q[x].k === k).sort((a,b) => Q[a].n - Q[b].n).forEach(x => out.push(x));
-  });
-  return out;
-}
 
 /* ---------- SIMULACRO VIEW ---------- */
 if (!S.simT) { try { const o = JSON.parse(lsGet(LS_KEY+'-sim')||'null'); if (o) S.sim = Object.assign({}, SIM0, o); } catch(e){} }
-const caseIds = Object.keys(CASES).map(Number).sort((a,b)=>a-b);
-function caseQs(k){ return IDS_E.filter(id => Q[id].k === k && valid(id)); }
 function normSim(c){
   const vc = IDS_C.filter(valid).length, ve = IDS_E.filter(id => !Q[id].k && valid(id)).length;
   c.th = Math.max(1, Math.min(parseInt(c.th)||1, vc + ve)); c.co = Math.max(0, Math.min(parseInt(c.co)||0, c.th, vc));
@@ -890,16 +910,23 @@ $('#shClose').onclick = closeSheet;
 $('#sheetBg').onclick = e => { if (e.target.id === 'sheetBg') closeSheet(); };
 
 /* ---------- ANSWERS VIEW ---------- */
-let af = {f:'C', q:'', flt:'all', lim:60};
+let af = {f:'C', q:'', flt:'all', lim:60, a:'', b:''};
 let ansListIds = [];
 function renderAns(keepLim){
   if (!keepLim) af.lim = 60;
   $$('#ansSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === af.f));
   $$('#ansFilter .chip').forEach(b => b.classList.toggle('on', b.dataset.v === af.flt));
   const base = af.f === 'C' ? IDS_C : IDS_E;
+  $('#ansTo').placeholder = af.f === 'C' ? '200' : '500';
+  $('#ansRngClr').style.display = (af.a || af.b) ? '' : 'none';
   const term = af.q.trim().toLowerCase();
+  const lo = parseInt(af.a), hi = parseInt(af.b);
+  const mr = term.match(/^(\d+)\s*[-–a]\s*(\d+)$/);
   ansListIds = base.filter(id => {
     const q = Q[id];
+    if (!isNaN(lo) && q.n < lo) return false;
+    if (!isNaN(hi) && q.n > hi) return false;
+    if (mr) return q.n >= +mr[1] && q.n <= +mr[2];
     if (af.flt === 'dud' && !isDub(id)) return false;
     if (af.flt === 'conf' && !(q.d && isConf(id))) return false;
     if (af.flt === 'none' && ans(id)) return false;
@@ -919,6 +946,9 @@ function renderAns(keepLim){
 $$('#ansSeg button').forEach(b => b.onclick = () => { af.f = b.dataset.v; renderAns(); });
 $$('#ansFilter .chip').forEach(b => b.onclick = () => { af.flt = b.dataset.v; renderAns(); });
 $('#ansSearch').oninput = e => { af.q = e.target.value; renderAns(); };
+$('#ansFrom').oninput = e => { af.a = e.target.value; renderAns(); };
+$('#ansTo').oninput = e => { af.b = e.target.value; renderAns(); };
+$('#ansRngClr').onclick = () => { af.a = af.b = ''; $('#ansFrom').value = $('#ansTo').value = ''; renderAns(); };
 $('#ansMore').onclick = () => { af.lim += 80; renderAns(true); };
 
 /* ---------- dialog ---------- */
@@ -931,7 +961,7 @@ function confirmDlg(t, p, yes, fn, noLabel, noFn){
 }
 const INFO = {
   thermo: ['Índice de preparación', `<p><b>90 puntos: dominio de la batería.</b> Porcentaje de las preguntas válidas que acertaste la última vez que te salieron, en cualquier examen. Las que no has visto cuentan como falladas.</p><p><b>10 puntos: racha.</b> 2 puntos por cada examen seguido de ${STREAK_MIN} preguntas o más sin ningún fallo, hasta ${STREAK_N}. Un fallo en un examen de ese tamaño la pone a cero.</p><p><b>100 y en verde</b> solo con toda la batería acertada en su último intento y la racha completa.</p><p>Si cambias una respuesta en Respuestas, el dominio se recalcula con ella.</p>`],
-  random: ['Examen aleatorio', `<p>Las preguntas sin respuesta válida no salen.</p><p>Las preguntas de un mismo caso clínico salen juntas.</p><p>La fase común no tiene casos clínicos.</p>`],
+  random: ['Examen aleatorio', `<p>Las preguntas sin respuesta válida no salen.</p><p>Los casos clínicos salen completos, con sus preguntas en el orden del documento.</p><p>En Mezcla, primero van las preguntas tipo test y después los casos.</p><p>La fase común no tiene casos clínicos.</p>`],
   sim: ['Simulacro oficial', `<p>Una única prueba con los dos ejercicios en el mismo cuestionario.</p><p>N1 = % de aciertos del teórico. N2 = % de aciertos del práctico.</p><p>MP = (N1 × 65 + N2 × 35) / 100. Apto con 50 o más. Los fallos no restan.</p><p>Las bases no fijan el número de preguntas ni la duración. En «Configurar u otra mezcla» guardas tu examen tipo o haces una mezcla puntual.</p>`],
   ans: ['Respuestas correctas', `<p>Los números son los de los documentos oficiales.</p><p>La respuesta que marques se usa en los siguientes exámenes y en el termómetro. La oficial queda indicada y se puede restaurar.</p><p>Una dudosa se puede confirmar: deja de contar como dudosa y puedes ocultar su anexo.</p><p>La bibliografía de cada pregunta se puede editar y restaurar.</p>`],
   gh: ['Sincronización', `<p>El progreso se guarda en un archivo dentro de un repositorio privado de tu GitHub. Cada dispositivo lo lee y lo actualiza.</p><p>Se sincroniza al abrir la app, al terminar un examen y al cambiar una respuesta, una bibliografía o tu examen tipo.</p><p>El repositorio y el token se escriben una vez en cada dispositivo y solo se guardan en él.</p>`],
